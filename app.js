@@ -1,23 +1,28 @@
 const express = require("express");
 const mongoose = require("mongoose");
+const cors = require("cors");
+const { PORT, DATABASE_URL } = require("./utils/config");
+const { login, createUser } = require("./controllers/users");
+const { getItems } = require("./controllers/clothingItems");
+const auth = require("./middlewares/auth");
 const usersRouter = require("./routes/users");
 const clothingItemsRouter = require("./routes/clothingItems");
 const { NOT_FOUND } = require("./utils/errors");
 
-const { PORT = 3001 } = process.env;
 const app = express();
 
-mongoose.connect("mongodb://localhost:27017/wtwr_db");
+mongoose
+  .connect(DATABASE_URL)
+  .catch((err) => console.error(`Database connection error: ${err.message}`));
 
+app.use(cors());
 app.use(express.json());
 
-app.use((req, res, next) => {
-  req.user = {
-    _id: "5d8b8592978f8bd833ca8133",
-  };
-  next();
-});
+app.post("/signin", login);
+app.post("/signup", createUser);
+app.get("/items", getItems);
 
+app.use(auth);
 app.use("/users", usersRouter);
 app.use("/items", clothingItemsRouter);
 
@@ -28,3 +33,5 @@ app.use((req, res) => {
 app.listen(PORT, () => {
   console.log(`App listening at port ${PORT}`);
 });
+
+module.exports = app;

@@ -1,30 +1,10 @@
 const ClothingItem = require("../models/clothingItem");
-const { BAD_REQUEST, NOT_FOUND, DEFAULT_ERROR } = require("../utils/errors");
-
-const handleItemError = (err, res) => {
-  console.error(err);
-  if (err.name === "ValidationError" || err.name === "CastError") {
-    return res
-      .status(BAD_REQUEST)
-      .send({ message: "Invalid clothing item data supplied." });
-  }
-  if (err.name === "DocumentNotFoundError") {
-    return res.status(NOT_FOUND).send({ message: "Clothing item not found." });
-  }
-  return res
-    .status(DEFAULT_ERROR)
-    .send({ message: "An error has occurred on the server." });
-};
+const { FORBIDDEN, NOT_FOUND, handleError } = require("../utils/errors");
 
 const getItems = (req, res) =>
   ClothingItem.find({})
     .then((items) => res.send(items))
-    .catch((err) => {
-      console.error(err);
-      res
-        .status(DEFAULT_ERROR)
-        .send({ message: "An error has occurred on the server." });
-    });
+    .catch((err) => handleError(res, err));
 
 const createItem = (req, res) => {
   const { name, weather, imageUrl } = req.body;
@@ -35,40 +15,47 @@ const createItem = (req, res) => {
     imageUrl,
     owner: req.user._id,
   })
-    .then((item) => res.send(item))
-    .catch((err) => handleItemError(err, res));
+    .then((item) => res.status(201).send(item))
+    .catch((err) => handleError(res, err));
 };
 
 const deleteItem = (req, res) =>
-  ClothingItem.findByIdAndDelete(req.params.itemId)
+  ClothingItem.findById(req.params.itemId)
+    .orFail()
+    .then((item) => {
+      if (item.owner.toString() !== req.user._id) {
+        return res
+          .status(FORBIDDEN)
+          .send({ message: "You cannot delete another user's item" });
+      }
+      return item.deleteOne().then(() => res.send(item));
+    })
+    .catch((err) => {
+      if (err.name === "DocumentNotFoundError") {
+        return res
+          .status(NOT_FOUND)
+          .send({ message: "Clothing item not found" });
+      }
+      return handleError(res, err);
+    });
+
+const updateLikes = (req, res, update) =>
+  ClothingItem.findByIdAndUpdate(req.params.itemId, update, { new: true })
     .orFail()
     .then((item) => res.send(item))
-    .catch((err) => handleItemError(err, res));
+    .catch((err) => {
+      if (err.name === "DocumentNotFoundError") {
+        return res
+          .status(NOT_FOUND)
+          .send({ message: "Clothing item not found" });
+      }
+      return handleError(res, err);
+    });
 
 const likeItem = (req, res) =>
-  ClothingItem.findByIdAndUpdate(
-    req.params.itemId,
-    { $addToSet: { likes: req.user._id } },
-    { new: true }
-  )
-    .orFail()
-    .then((item) => res.send(item))
-    .catch((err) => handleItemError(err, res));
+  updateLikes(req, res, { $addToSet: { likes: req.user._id } });
 
 const dislikeItem = (req, res) =>
-  ClothingItem.findByIdAndUpdate(
-    req.params.itemId,
-    { $pull: { likes: req.user._id } },
-    { new: true }
-  )
-    .orFail()
-    .then((item) => res.send(item))
-    .catch((err) => handleItemError(err, res));
+  updateLikes(req, res, { $pull: { likes: req.user._id } });
 
-module.exports = {
-  getItems,
-  createItem,
-  deleteItem,
-  likeItem,
-  dislikeItem,
-};
+module.exports = { getItems, createItem, deleteItem, likeItem, dislikeItem };
